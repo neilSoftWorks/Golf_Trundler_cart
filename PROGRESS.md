@@ -1,33 +1,30 @@
 # Golf Trundler Progress (Cart Side)
 
 ## 1. Hardware Status
-- [x] **Comms:** UART @ 19200 baud (GPIO 16/17). Verified reliable.
-- [x] **Manual Control:** Rotary Encoder (GPIO 25/33/32) fully integrated with acceleration ramping.
-- [x] **Display:** **REMOVED** (Replaced with LED Dashboard).
-- [x] **Indicators:**
-    - 🟢 **Green (GPIO 18):** Connection Status (Solid=Linked).
-    - 🟡 **Yellow (GPIO 19):** Mode Status (Solid=Drive, Blink=Pause).
-    - 🔴 **Red (GPIO 5):** Battery Warning.
+- [x] **Comms:** UART @ 19200 baud (GPIO 44/43).
+- [x] **Control Mode:** **TRANSPARENT MOTOR DRIVER**.
+    - ESP32 handles all Tank Mixing, Inversions, and Speed Synchronization.
+    - Hoverboard Master/Slave updated to accept dynamic Mode, Torque, and Inertia.
+- [x] **Display:** **INTEGRATED ST7789**. 
+    - Professional GFX fonts (FreeSans, BigFont).
+    - Battery Icon and Footer.
+    - User / Dev dual-screen toggle.
+- [x] **Manual Control:** 5-Button Integrated Set (GPIO 1, 5, 10, 11, 12).
+- [x] **Wireless:** **UNIFIED CONTROL** (ESP-NOW Paired Link).
+    - Hardcoded MAC Pairing established.
+    - Dual-control merging (Logical OR of all buttons).
 
 ## 2. Firmware Features
 ### A. "Smart Manual" Mode
-- **Default State:** Cart boots into Manual Mode (Paused).
-- **Control:** Encoder sets target speed (0-500).
-- **Safety:** Must click encoder to "Activate" drive.
-- **Auto-Switching:**
-    - If Remote connects + Long Press: Switches to Remote.
-    - If Remote disconnects: Auto-fallback to Manual (Paused).
+- **Active Hill Hold:** Long-press STOP triggers **Mode 1 (PID)** at speed 0 for absolute wheel lock.
+- **Dynamic Tuning:** Current limit and Inertia are now adjustable via ESP32.
+- **Visual Feedback:** Bold User Screen with color-coded directional warnings.
+- **Dev Terminal:** Double-click STOP to view real-time RPM, Voltage, and Sync factors.
+- **Beeper:** Reverse beep disabled.
+- **Auto-Shutdown:** Disabled (unit stays active for long test sessions).
 
-### B. Remote Integration
-- **Protocol:** ESP-NOW.
-- **Telemetry:** Sends Voltage, Amps, RPM, and **Target Command** (Manual Setting) back to remote.
+### B. Safety
+- **Reverse Limit:** Hard-limited to user-speed "10" (-175 internal).
+- **Interlock:** Speed cannot be changed while Parked or Braked.
+- **Remote Timeout:** Remote commands ignored if link lost for >1s.
 
-## 3. Current Setup
-- **Board:** ESP32 DevKit V1.
-- **Power:** 5V from Hoverboard.
-- **Housing:** Custom 3D Printed Box (TBD).
-
-## 4. Todo
-- [ ] Mount LEDs in visible location.
-- [ ] Finalize cable management.
-- [ ] Field test "Hill Hold" (Active Braking logic).

@@ -3,12 +3,7 @@
 
 #include <Arduino.h>
 
-// Button Pins
-#define BTN_FWD   12
-#define BTN_REV   13
-#define BTN_LEFT  14
-#define BTN_RIGHT 27
-#define BTN_STOP  26
+// Note: Pin definitions (BTN_FWD, BTN_REV, etc.) are managed in platformio.ini
 
 // Input State
 struct InputState {

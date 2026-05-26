@@ -16,7 +16,7 @@ class TrundlerDisplay {
 public:
     TrundlerDisplay(int cs, int dc, int rst);
     void begin();
-    void update(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isParked, bool devMode, bool hasRemote, uint8_t curLimit, uint8_t inertia);
+    void update(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isParked, bool isCruise, bool devMode, bool hasRemote, uint8_t curLimit, uint8_t inertia);
 
 private:
     Adafruit_ST7789 tft;
@@ -31,6 +31,7 @@ private:
     uint8_t _lastLimit = 0, _lastInertia = 0;
     bool _lastActive = false; 
     bool _lastParked = false; 
+    bool _lastCruise = false;
     bool _lastDevMode = false;
     bool _lastRemote = false;
 

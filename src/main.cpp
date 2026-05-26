@@ -24,10 +24,14 @@ unsigned long lastRecvTime = 0;
 // System States
 bool manualActive = false;   
 bool isParked = false;       
+bool isCruiseMode = false;   
 int16_t manualTargetSpeed = 0; 
 int16_t manualCurrentSpeed = 0;
 float slaveComp = 1.0; 
 bool showDevScreen = false; 
+
+// Software Cruise State
+int16_t cruiseNudge = 0;
 
 // Tuning Parameters
 uint8_t curLimit = 15;  
@@ -37,13 +41,6 @@ uint8_t inertia = 10;
 TrundlerDisplay ui(TFT_CS, TFT_DC, TFT_RST);
 
 void onDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
-  // If you see this in the serial monitor, but REMOTE icon is OFF, 
-  // it means the struct size is wrong!
-  /*
-  Serial.printf("DEBUG RX from: %02X:%02X:%02X:%02X:%02X:%02X | Len: %d\n", 
-                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], len);
-  */
-
   if (len == sizeof(InputState)) {
     memcpy(&remoteInputs, incomingData, sizeof(InputState));
     lastRecvTime = millis();
@@ -52,12 +49,9 @@ void onDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 }
 
 void setup() {
-  // Primary Serial
   Serial.begin(115200);
   delay(100);
-
   Serial.println("\n\n=== TRUNDLER S3 BOOTING ===");
-  Serial.printf("MAC: %s\n", WiFi.macAddress().c_str());
   
   initInput();
   ui.begin();
@@ -65,7 +59,6 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
   
-  // Explicitly lock to Channel 1 (must be same as Remote)
   esp_wifi_set_promiscuous(true);
   esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
   esp_wifi_set_promiscuous(false);
@@ -76,7 +69,6 @@ void setup() {
   esp_now_register_recv_cb(onDataRecv);
 
   HoverSerial.begin(HOVER_BAUD, SERIAL_8N1, HOVER_SERIAL_RX, HOVER_SERIAL_TX); 
-  
   delay(1000); 
   Serial.println("System Ready.");
 }
@@ -127,7 +119,7 @@ void loop() {
       isParked = !isParked;
       if (isParked) {
           manualActive = false; 
-          if (manualTargetSpeed < 0) manualTargetSpeed = 0; // Safety reset for reverse
+          if (manualTargetSpeed < 0) manualTargetSpeed = 0; 
       }
       longPressTriggered = true;
   }
@@ -138,19 +130,25 @@ void loop() {
               isParked = false; manualActive = false; 
           } else {
               manualActive = !manualActive; 
-              if (!manualActive && manualTargetSpeed < 0) manualTargetSpeed = 0; // Safety reset for reverse
+              if (!manualActive && manualTargetSpeed < 0) manualTargetSpeed = 0;
           }
       }
   }
 
-  // --- 3. Dev Mode Combo (L + R) ---
-  static bool chordHandled = false;
+  // --- 3. Combo Logic ---
+  static bool chordDevHandled = false;
   if (currentInputs.left && currentInputs.right) {
-      if (!chordHandled) {
-          showDevScreen = !showDevScreen;
-          chordHandled = true;
+      if (!chordDevHandled) { showDevScreen = !showDevScreen; chordDevHandled = true; }
+  } else chordDevHandled = false;
+
+  static bool chordCruiseHandled = false;
+  if (currentInputs.fwd && currentInputs.rev) {
+      if (!chordCruiseHandled) { 
+          isCruiseMode = !isCruiseMode; 
+          cruiseNudge = 0; 
+          chordCruiseHandled = true; 
       }
-  } else chordHandled = false;
+  } else chordCruiseHandled = false;
   
   lastInputs = currentInputs;
 
@@ -166,9 +164,22 @@ void loop() {
   int16_t driveSpeed = manualCurrentSpeed;
   int16_t turnSteer = currentInputs.left ? -100 : (currentInputs.right ? 100 : 0);
 
-  // Governor
+  // --- 5. SOFTWARE CRUISE CONTROL (Auto-Throttle) ---
+  static unsigned long lastCruiseAdjust = 0;
+  if (manualActive && isCruiseMode && !isParked && abs(manualTargetSpeed) > 50 && turnSteer == 0 && (millis() - lastCruiseAdjust > 100)) {
+      lastCruiseAdjust = millis();
+      int16_t targetRPM = abs(manualTargetSpeed) * 1.5; 
+      int16_t actualRPM = (abs(cartStatus.speedL) + abs(cartStatus.speedR)) / 2;
+      if (actualRPM < targetRPM - 15) cruiseNudge += 2;
+      else if (actualRPM > targetRPM + 15) cruiseNudge -= 2;
+      cruiseNudge = constrain(cruiseNudge, -50, 100); 
+  } else if (!isCruiseMode || !manualActive) {
+      cruiseNudge = 0;
+  }
+
+  // --- 6. Governor (Disabled during turns or in Cruise Mode) ---
   static unsigned long lastCompAdjust = 0;
-  if (manualActive && abs(driveSpeed) > 100 && turnSteer == 0 && (millis() - lastCompAdjust > 200)) {
+  if (manualActive && !isCruiseMode && abs(driveSpeed) > 100 && turnSteer == 0 && (millis() - lastCompAdjust > 200)) {
       lastCompAdjust = millis();
       int16_t absL = abs(cartStatus.speedL);
       int16_t absR = abs(cartStatus.speedR);
@@ -177,15 +188,21 @@ void loop() {
       slaveComp = constrain(slaveComp, 0.7, 1.3); 
   }
   
-  int16_t speedL = -(driveSpeed + turnSteer);
-  int16_t speedR = (driveSpeed - turnSteer) * slaveComp; 
+  int16_t finalSpeed = driveSpeed;
+  if (isCruiseMode && finalSpeed != 0) {
+      if (finalSpeed > 0) finalSpeed += cruiseNudge;
+      else finalSpeed -= cruiseNudge;
+  }
+
+  int16_t speedL = -(finalSpeed + turnSteer);
+  int16_t speedR = (finalSpeed - turnSteer) * slaveComp; 
 
   if (isParked && !manualActive) { speedL = 0; speedR = 0; }
 
   uint8_t hoverMode = (isParked && !manualActive) ? 1 : 0;
   uint8_t controlState = (manualActive || isParked) ? STATE_BATT_ONLY : STATE_DISABLE;
 
-  // --- 5. RX Telemetry ---
+  // --- 7. RX Telemetry ---
   if (Receive(HoverSerial, feedback)) {
       cartStatus.voltage = feedback.iVolt / 100.0;
       cartStatus.speedL = feedback.iSpeedL;
@@ -193,10 +210,10 @@ void loop() {
       cartStatus.odom = feedback.iOdomL;
   }
 
-  // --- 6. UI Update ---
-  ui.update(cartStatus, manualTargetSpeed, turnSteer, slaveComp, manualActive, isParked, showDevScreen, hasRemote, curLimit, inertia);
+  // --- 8. UI Update ---
+  ui.update(cartStatus, manualTargetSpeed, turnSteer, slaveComp, manualActive, isParked, isCruiseMode, showDevScreen, hasRemote, curLimit, inertia);
 
-  // --- 7. TX Transmission ---
+  // --- 9. TX Transmission ---
   if (millis() - lastSend > SEND_INTERVAL_MS) {
       lastSend = millis();
       HoverSend(HoverSerial, speedL, speedR, controlState, controlState, hoverMode, curLimit, inertia);

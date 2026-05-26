@@ -45,7 +45,6 @@ void TrundlerDisplay::drawRemoteIcon(int x, int y, bool connected) {
 
 void TrundlerDisplay::drawParkedIcon(int x, int y, bool parked) {
     if (!parked) return;
-    // B icon is now RED for safety
     tft.drawCircle(x+10, y+10, 9, C_RED);
     tft.setTextColor(C_RED);
     tft.setFont(&FreeSans9pt7b);
@@ -67,36 +66,32 @@ void TrundlerDisplay::drawBattery(int x, int y, float voltage) {
     tft.fillRect(x + 2 + fillW, y + 2, (w - 4) - fillW, h - 4, C_BLACK);
 }
 
-void TrundlerDisplay::update(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isParked, bool devMode, bool hasRemote, uint8_t curLimit, uint8_t inertia) {
+void TrundlerDisplay::update(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isParked, bool isCruise, bool devMode, bool hasRemote, uint8_t curLimit, uint8_t inertia) {
     if (millis() - _lastUpdate < 100) return;
     _lastUpdate = millis();
 
-    // Reset screen on mode change
     if (devMode != _lastDevMode) {
         tft.fillRect(0, 35, 240, 250, C_BLACK);
         _lastDevMode = devMode;
-        // force redraw of everything
         _lastVolt = -1.0; _lastTarget = -999; _lastSteer = -999; 
-        _lastComp = -1.0; _lastLimit = 0; _lastActive = !active; _lastParked = !isParked;
+        _lastComp = -1.0; _lastLimit = 0; _lastActive = !active; _lastParked = !isParked; _lastCruise = !isCruise;
         drawFooter(stats.voltage, hasRemote, isParked); 
     }
 
-    // Update Footer if anything changed
     if (stats.voltage != _lastVolt || hasRemote != _lastRemote || isParked != _lastParked) {
         drawFooter(stats.voltage, hasRemote, isParked);
         _lastVolt = stats.voltage;
         _lastRemote = hasRemote;
-        // Note: _lastParked is updated at the very end to ensure redraws fire
     }
 
     if (devMode) {
         tft.setFont(&FreeSans9pt7b);
-        if (active != _lastActive || isParked != _lastParked) {
+        if (active != _lastActive || isParked != _lastParked || isCruise != _lastCruise) {
             tft.fillRect(5, 45, 230, 30, C_BLACK);
             tft.setCursor(5, 65);
-            if (active) { tft.setTextColor(C_GREEN); tft.print("STATUS: Driving"); }
-            else if (isParked) { tft.setTextColor(C_RED); tft.print("STATUS: Brake"); }
-            else { tft.setTextColor(C_WHITE); tft.print("STATUS: Stopped"); }
+            if (active) { tft.setTextColor(isCruise ? C_CYAN : C_GREEN); tft.printf("MODE: %s", isCruise ? "Cruise" : "PWM"); }
+            else if (isParked) { tft.setTextColor(C_RED); tft.print("MODE: Brake"); }
+            else { tft.setTextColor(C_WHITE); tft.print("MODE: Stopped"); }
         }
         if (curLimit != _lastLimit || inertia != _lastInertia) {
             tft.fillRect(5, 170, 230, 25, C_BLACK);
@@ -105,19 +100,19 @@ void TrundlerDisplay::update(const CartData &stats, int16_t targetSpeed, int16_t
             tft.printf("LIM: %dA  INR: %d", curLimit, inertia);
             _lastLimit = curLimit; _lastInertia = inertia;
         }
-        drawDevScreen(stats, targetSpeed, currentSteer, slaveComp, active);
+        drawDevScreen(stats, targetSpeed, currentSteer, slaveComp, active, isParked, isCruise);
     }
     else {
-        // Status Row (Driving / Brake / Stopped)
-        if (active != _lastActive || isParked != _lastParked) {
+        if (active != _lastActive || isParked != _lastParked || isCruise != _lastCruise) {
             tft.fillRect(0, 180, 240, 50, C_BLACK);
             tft.setFont(&FreeSans12pt7b);
-            
             String sStatus = "Stopped";
             uint16_t color = C_WHITE;
-            if (active) { sStatus = "Driving"; color = C_GREEN; }
-            else if (isParked) { sStatus = "Brake"; color = C_RED; }
-            
+            if (active) { 
+                if (isCruise) { sStatus = "Cruise Mode"; color = C_CYAN; }
+                else { sStatus = "Smooth Drive"; color = C_GREEN; }
+            }
+            else if (isParked) { sStatus = "Brake Lock"; color = C_RED; }
             tft.setTextColor(color);
             int16_t x1, y1; uint16_t w, h;
             tft.getTextBounds(sStatus, 0, 0, &x1, &y1, &w, &h);
@@ -129,6 +124,7 @@ void TrundlerDisplay::update(const CartData &stats, int16_t targetSpeed, int16_t
 
     _lastActive = active;
     _lastParked = isParked;
+    _lastCruise = isCruise;
 }
 
 void TrundlerDisplay::drawUserScreen(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, bool active) {
@@ -145,7 +141,6 @@ void TrundlerDisplay::drawUserScreen(const CartData &stats, int16_t targetSpeed,
         tft.print(sSpeed);
         _lastTarget = targetSpeed;
     }
-
     if (currentSteer != _lastSteer) {
         tft.fillRect(0, 235, 240, 40, C_BLACK);
         if (currentSteer != 0) {
@@ -161,7 +156,8 @@ void TrundlerDisplay::drawUserScreen(const CartData &stats, int16_t targetSpeed,
     }
 }
 
-void TrundlerDisplay::drawDevScreen(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active) {
+void TrundlerDisplay::drawDevScreen(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isParked, bool isCruise) {
+    tft.setFont(&FreeSans9pt7b);
     if (targetSpeed != _lastTarget) {
         tft.fillRect(5, 80, 230, 30, C_BLACK);
         tft.setTextColor(C_CYAN);
@@ -182,12 +178,5 @@ void TrundlerDisplay::drawDevScreen(const CartData &stats, int16_t targetSpeed, 
         tft.setCursor(5, 170);
         tft.printf("COMP: %.3f", slaveComp);
         _lastComp = slaveComp;
-    }
-    if (currentSteer != _lastSteer) {
-        tft.fillRect(140, 70, 95, 25, C_BLACK);
-        tft.setTextColor(C_GREEN);
-        tft.setCursor(140, 75);
-        tft.printf("STR: %d", currentSteer);
-        _lastSteer = currentSteer;
     }
 }

@@ -38,7 +38,7 @@ private:
     void drawHeader();
     void drawFooter(float voltage, bool hasRemote, bool isParked);
     void drawUserScreen(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, bool active);
-    void drawDevScreen(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active);
+    void drawDevScreen(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isParked, bool isCruise);
     void drawBattery(int x, int y, float voltage);
     void drawRemoteIcon(int x, int y, bool connected);
     void drawParkedIcon(int x, int y, bool parked);

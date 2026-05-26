@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_now.h>
+#include <esp_wifi.h>
 #include "util.h"
 #include "hoverserial.h"
 #include "input.h" 
@@ -28,14 +29,21 @@ int16_t manualCurrentSpeed = 0;
 float slaveComp = 1.0; 
 bool showDevScreen = false; 
 
-// Tuning Parameters (Now Dynamic!)
-uint8_t curLimit = 15;  // Default 15 Amps
-uint8_t inertia = 10;   // Default FILTER_SHIFT 10
+// Tuning Parameters
+uint8_t curLimit = 15;  
+uint8_t inertia = 10;   
 
 // UI Object (CS=7, DC=2, RST=3)
 TrundlerDisplay ui(TFT_CS, TFT_DC, TFT_RST);
 
 void onDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
+  // If you see this in the serial monitor, but REMOTE icon is OFF, 
+  // it means the struct size is wrong!
+  /*
+  Serial.printf("DEBUG RX from: %02X:%02X:%02X:%02X:%02X:%02X | Len: %d\n", 
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], len);
+  */
+
   if (len == sizeof(InputState)) {
     memcpy(&remoteInputs, incomingData, sizeof(InputState));
     lastRecvTime = millis();
@@ -44,16 +52,24 @@ void onDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 }
 
 void setup() {
+  // Primary Serial
   Serial.begin(115200);
-  delay(500);
-  Serial.println("\n--- GOLF CART TRUNDLER (UNIVERSAL CONTROL) ---");
-  Serial.print("MY MAC: "); Serial.println(WiFi.macAddress());
+  delay(100);
+
+  Serial.println("\n\n=== TRUNDLER S3 BOOTING ===");
+  Serial.printf("MAC: %s\n", WiFi.macAddress().c_str());
   
   initInput();
   ui.begin();
 
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
+  
+  // Explicitly lock to Channel 1 (must be same as Remote)
+  esp_wifi_set_promiscuous(true);
+  esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+  esp_wifi_set_promiscuous(false);
+
   if (esp_now_init() != ESP_OK) {
     Serial.println("ESP-NOW Init Failed");
   }
@@ -66,11 +82,9 @@ void setup() {
 }
 
 unsigned long lastSend = 0;
-unsigned long lastSerialDebug = 0;
-uint32_t packetCounter = 0;
 
 void loop() {
-  // --- 1. Combined Button Logic ---
+  // --- 1. Inputs ---
   InputState localInputs = readInput();
   
   if (hasRemote && (millis() - lastRecvTime > 1000)) {
@@ -88,7 +102,8 @@ void loop() {
   static InputState lastInputs;
   static unsigned long lastFwdRevAction = 0;
   
-  if (manualActive && (millis() - lastFwdRevAction > 200)) { 
+  // FWD / REV Speed Adjustments (Only while ACTIVE)
+  if (manualActive && (millis() - lastFwdRevAction > 150)) { 
       if (currentInputs.fwd) {
           manualTargetSpeed = CLAMP(manualTargetSpeed + 25, -175, 350); 
           lastFwdRevAction = millis();
@@ -99,47 +114,47 @@ void loop() {
       }
   }
 
-  // --- 2. STOP Button Multi-Action Logic ---
-  static unsigned long stopPressTime = 0;
-  static unsigned long lastStopReleaseTime = 0;
-  static int clickCount = 0;
-  static bool stopHandledLong = false;
-  static bool waitingForDoubleClick = false;
+  // --- 2. STOP Button Logic ---
+  static unsigned long stopPressStart = 0;
+  static bool longPressTriggered = false;
 
   if (currentInputs.stop && !lastInputs.stop) {
-      stopPressTime = millis();
-      stopHandledLong = false;
+      stopPressStart = millis();
+      longPressTriggered = false;
   }
   
-  if (currentInputs.stop && !stopHandledLong && (millis() - stopPressTime > 1200)) {
+  if (currentInputs.stop && !longPressTriggered && (millis() - stopPressStart > 1000)) {
       isParked = !isParked;
-      if (isParked) manualActive = false; 
-      stopHandledLong = true;
-      waitingForDoubleClick = false;
+      if (isParked) {
+          manualActive = false; 
+          if (manualTargetSpeed < 0) manualTargetSpeed = 0; // Safety reset for reverse
+      }
+      longPressTriggered = true;
   }
 
   if (!currentInputs.stop && lastInputs.stop) {
-      if (!stopHandledLong) {
-          clickCount++;
-          lastStopReleaseTime = millis();
-          waitingForDoubleClick = true;
+      if (!longPressTriggered && (millis() - stopPressStart > 50)) {
+          if (isParked) {
+              isParked = false; manualActive = false; 
+          } else {
+              manualActive = !manualActive; 
+              if (!manualActive && manualTargetSpeed < 0) manualTargetSpeed = 0; // Safety reset for reverse
+          }
       }
   }
 
-  if (waitingForDoubleClick && (millis() - lastStopReleaseTime > 350)) {
-      if (clickCount >= 2) {
+  // --- 3. Dev Mode Combo (L + R) ---
+  static bool chordHandled = false;
+  if (currentInputs.left && currentInputs.right) {
+      if (!chordHandled) {
           showDevScreen = !showDevScreen;
-      } else {
-          manualActive = !manualActive;
-          if (manualActive) isParked = false; 
+          chordHandled = true;
       }
-      clickCount = 0;
-      waitingForDoubleClick = false;
-  }
+  } else chordHandled = false;
   
   lastInputs = currentInputs;
 
-  // --- 3. Internal Ramping ---
+  // --- 4. Ramping & Tank Mix ---
   static unsigned long lastMoveRamp = 0;
   if (millis() - lastMoveRamp > 50) {
       lastMoveRamp = millis();
@@ -148,12 +163,10 @@ void loop() {
       else if (manualCurrentSpeed > target) manualCurrentSpeed -= 5;
   }
   
-  // --- 4. Arbitration & Tank Mix ---
   int16_t driveSpeed = manualCurrentSpeed;
-  int16_t turnSteer = 0; 
-  if (currentInputs.left) turnSteer = -100;
-  else if (currentInputs.right) turnSteer = 100;
+  int16_t turnSteer = currentInputs.left ? -100 : (currentInputs.right ? 100 : 0);
 
+  // Governor
   static unsigned long lastCompAdjust = 0;
   if (manualActive && abs(driveSpeed) > 100 && turnSteer == 0 && (millis() - lastCompAdjust > 200)) {
       lastCompAdjust = millis();
@@ -167,13 +180,13 @@ void loop() {
   int16_t speedL = -(driveSpeed + turnSteer);
   int16_t speedR = (driveSpeed - turnSteer) * slaveComp; 
 
-  // Mode Selection: 1 (PID) for Brake, 0 (PWM) for Drive
+  if (isParked && !manualActive) { speedL = 0; speedR = 0; }
+
   uint8_t hoverMode = (isParked && !manualActive) ? 1 : 0;
   uint8_t controlState = (manualActive || isParked) ? STATE_BATT_ONLY : STATE_DISABLE;
 
   // --- 5. RX Telemetry ---
   if (Receive(HoverSerial, feedback)) {
-      packetCounter++;
       cartStatus.voltage = feedback.iVolt / 100.0;
       cartStatus.speedL = feedback.iSpeedL;
       cartStatus.speedR = feedback.iSpeedR;
@@ -181,14 +194,7 @@ void loop() {
   }
 
   // --- 6. UI Update ---
-  ui.update(cartStatus, manualTargetSpeed, turnSteer, slaveComp, manualActive, isParked, showDevScreen, hasRemote);
-
-  if (millis() - lastSerialDebug > 1000) {
-      Serial.printf("V: %.2fV | L: %d R: %d | Mode: %d | Brake: %s\n", 
-          cartStatus.voltage, cartStatus.speedL, cartStatus.speedR, hoverMode, isParked ? "ON" : "OFF");
-      packetCounter = 0;
-      lastSerialDebug = millis();
-  }
+  ui.update(cartStatus, manualTargetSpeed, turnSteer, slaveComp, manualActive, isParked, showDevScreen, hasRemote, curLimit, inertia);
 
   // --- 7. TX Transmission ---
   if (millis() - lastSend > SEND_INTERVAL_MS) {

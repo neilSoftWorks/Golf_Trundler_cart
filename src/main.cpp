@@ -12,7 +12,8 @@
 #define HOVER_BAUD 19200
 #define SEND_INTERVAL_MS 20  
 
-HardwareSerial HoverSerial(1); 
+// On C3, use Serial0 for Hoverboard
+HardwareSerial HoverSerial(0); 
 SerialHover2Server feedback;
 
 InputState remoteInputs; 
@@ -94,8 +95,9 @@ void loop() {
   static InputState lastInputs;
   static unsigned long lastFwdRevAction = 0;
   
-  // FWD / REV Speed Adjustments (Only while ACTIVE)
-  if (manualActive && (millis() - lastFwdRevAction > 150)) { 
+  // FWD / REV Speed Adjustments
+  // Allowed when Driving (manualActive) OR Stopped (not isParked). Locked only when Braked.
+  if ((manualActive || !isParked) && (millis() - lastFwdRevAction > 150)) { 
       if (currentInputs.fwd) {
           manualTargetSpeed = CLAMP(manualTargetSpeed + 25, -175, 350); 
           lastFwdRevAction = millis();

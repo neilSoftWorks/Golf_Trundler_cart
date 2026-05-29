@@ -53,7 +53,8 @@ void TrundlerDisplay::drawParkedIcon(int x, int y, bool parked) {
 }
 
 void TrundlerDisplay::drawBattery(int x, int y, float voltage) {
-    float pct = (voltage - 32.0) / (41.5 - 32.0);
+    // Adjusted curve: 40.0V visually shows as 100% to account for resting vs loaded voltage.
+    float pct = (voltage - 32.0) / (40.0 - 32.0);
     pct = constrain(pct, 0.0, 1.0);
     int w = 50, h = 20;
     tft.drawRect(x, y, w, h, C_WHITE);

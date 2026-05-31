@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 #include <Adafruit_GFX.h>
-#include <Adafruit_ST7789.h>
+#include <Adafruit_ST7735.h>
 #include <Fonts/FreeSans9pt7b.h>
 #include <Fonts/FreeSans12pt7b.h>
 #include <Fonts/FreeSans18pt7b.h>
@@ -16,10 +16,10 @@ class TrundlerDisplay {
 public:
     TrundlerDisplay(int cs, int dc, int rst);
     void begin();
-    void update(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isParked, bool isCruise, bool devMode, bool hasRemote, uint8_t curLimit, uint8_t inertia);
+    void update(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isCruise, bool devMode, bool hasRemote, uint8_t curLimit, uint8_t inertia);
 
 private:
-    Adafruit_ST7789 tft;
+    Adafruit_ST7735 tft;
     unsigned long _lastUpdate = 0;
 
     // State for flicker reduction
@@ -30,18 +30,16 @@ private:
     float _lastComp = -1.0;
     uint8_t _lastLimit = 0, _lastInertia = 0;
     bool _lastActive = false; 
-    bool _lastParked = false; 
     bool _lastCruise = false;
     bool _lastDevMode = false;
     bool _lastRemote = false;
 
     void drawHeader();
-    void drawFooter(float voltage, bool hasRemote, bool isParked);
+    void drawFooter(float voltage, bool hasRemote);
     void drawUserScreen(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, bool active);
-    void drawDevScreen(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isParked, bool isCruise);
+    void drawDevScreen(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isCruise);
     void drawBattery(int x, int y, float voltage);
     void drawRemoteIcon(int x, int y, bool connected);
-    void drawParkedIcon(int x, int y, bool parked);
 
     const uint16_t C_BLACK   = 0x0000;
     const uint16_t C_WHITE   = 0xFFFF;

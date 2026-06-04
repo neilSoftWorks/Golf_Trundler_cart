@@ -46,9 +46,6 @@ uint8_t curLimit = 15;
 uint8_t inertia = 10;   
 
 void onDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
-  // Radio Debug: Prints for EVERY packet the radio hears
-  Serial.printf("Radio RX: From %02X:%02X, Size %d\n", mac[0], mac[1], len);
-
   if (len == sizeof(InputState)) {
     memcpy(&remoteInputs, incomingData, sizeof(InputState));
     lastRecvTime = millis();
@@ -197,7 +194,7 @@ void loop() {
   
   int16_t driveSpeed = manualCurrentSpeed;
 
-  // --- 3. SOFTWARE CRUISE CONTROL ---
+  // --- 5. SOFTWARE CRUISE CONTROL ---
   static unsigned long lastCruiseAdjust = 0;
   if (manualActive && isCruiseMode && abs(manualTargetSpeed) > 50 && turnSteer == 0 && (millis() - lastCruiseAdjust > 100)) {
       lastCruiseAdjust = millis();
@@ -246,19 +243,6 @@ void loop() {
   }
 
   // --- 8. UI Update ---
-  static unsigned long lastDisplayDebug = 0;
-  if (millis() - lastDisplayDebug > 1000) {
-      lastDisplayDebug = millis();
-      uint8_t m[6];
-      WiFi.macAddress(m);
-      uint8_t ch;
-      wifi_second_chan_t sec;
-      esp_wifi_get_channel(&ch, &sec);
-      Serial.printf("UI Loop: Volt=%.1fV, Mode=%s, Level=%d | MAC: %02X:%02X:%02X:%02X:%02X:%02X | CH: %d\n", 
-          cartStatus.voltage, manualActive ? "ACTIVE" : "STOP", userSpeedLevel,
-          m[0], m[1], m[2], m[3], m[4], m[5], ch);
-  }
-  
   uint8_t rBatt = hasRemote ? remoteInputs.vBatt : 0;
   ui.update(cartStatus, userSpeedLevel, turnSteer, slaveComp, manualActive, isCruiseMode, showDevScreen, hasRemote, rBatt, curLimit, inertia);
 

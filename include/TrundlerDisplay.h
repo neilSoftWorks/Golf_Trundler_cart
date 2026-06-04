@@ -29,7 +29,7 @@ private:
     int16_t _lastSteer = -999;
     float _lastComp = -1.0;
     uint8_t _lastLimit = 0, _lastInertia = 0;
-    bool _lastActive = false; 
+    bool _lastActive = true; // Set to true to force 'Stopped' redraw on boot
     bool _lastCruise = false;
     bool _lastDevMode = false;
     bool _lastRemote = false;
@@ -41,6 +41,7 @@ private:
     void drawDevScreen(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isCruise);
     void drawBattery(int x, int y, float voltage);
     void drawRemoteIcon(int x, int y, bool connected, uint8_t remoteBatt);
+    void drawSteeringArrows(int16_t currentSteer);
 
     const uint16_t C_BLACK   = 0x0000;
     const uint16_t C_WHITE   = 0xFFFF;

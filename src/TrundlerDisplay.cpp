@@ -56,6 +56,21 @@ void TrundlerDisplay::drawBattery(int x, int y, float voltage) {
     tft.fillRect(x + 2 + fillW, y + 2, (w - 4) - fillW, h - 4, C_BLACK);
 }
 
+void TrundlerDisplay::drawSteeringArrows(int16_t currentSteer) {
+    if (currentSteer == _lastSteer) return;
+    
+    // Clear old arrows
+    tft.fillRect(0, 20, 25, 40, C_BLACK);
+    tft.fillRect(103, 20, 25, 40, C_BLACK);
+    
+    if (currentSteer < 0) { // Left
+        tft.fillTriangle(20, 30, 20, 50, 5, 40, C_ORANGE);
+    } else if (currentSteer > 0) { // Right
+        tft.fillTriangle(108, 30, 108, 50, 123, 40, C_ORANGE);
+    }
+    _lastSteer = currentSteer;
+}
+
 void TrundlerDisplay::update(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isCruise, bool devMode, bool hasRemote, uint8_t remoteBatt, uint8_t curLimit, uint8_t inertia) {
     if (millis() - _lastUpdate < 100) return;
     _lastUpdate = millis();
@@ -81,7 +96,7 @@ void TrundlerDisplay::update(const CartData &stats, int16_t targetSpeed, int16_t
     else {
         // Row 1: Speed Big Number
         if (targetSpeed != _lastTarget) {
-            tft.fillRect(0, 0, 128, 70, C_BLACK);
+            tft.fillRect(25, 0, 78, 70, C_BLACK); // Adjusted width to not clear arrows
             tft.setFont(&FreeSans24pt7b); 
             int userSpeed = abs(targetSpeed); 
             String sSpeed = (targetSpeed < 0 ? "-" : "") + String(userSpeed);
@@ -93,6 +108,8 @@ void TrundlerDisplay::update(const CartData &stats, int16_t targetSpeed, int16_t
             tft.print(sSpeed);
             _lastTarget = targetSpeed;
         }
+
+        drawSteeringArrows(currentSteer);
 
         // Row 2: Status Text (Mixed Case, Small Font)
         if (active != _lastActive) {

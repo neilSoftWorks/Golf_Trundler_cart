@@ -16,7 +16,7 @@ class TrundlerDisplay {
 public:
     TrundlerDisplay(int cs, int dc, int rst);
     void begin();
-    void update(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isCruise, bool devMode, bool hasRemote, uint8_t curLimit, uint8_t inertia);
+    void update(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isCruise, bool devMode, bool hasRemote, uint8_t remoteBatt, uint8_t curLimit, uint8_t inertia);
 
 private:
     Adafruit_ST7735 tft;
@@ -33,13 +33,14 @@ private:
     bool _lastCruise = false;
     bool _lastDevMode = false;
     bool _lastRemote = false;
+    uint8_t _lastRemoteBatt = 0;
 
     void drawHeader();
-    void drawFooter(float voltage, bool hasRemote);
+    void drawFooter(float voltage, bool hasRemote, uint8_t remoteBatt);
     void drawUserScreen(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, bool active);
     void drawDevScreen(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isCruise);
     void drawBattery(int x, int y, float voltage);
-    void drawRemoteIcon(int x, int y, bool connected);
+    void drawRemoteIcon(int x, int y, bool connected, uint8_t remoteBatt);
 
     const uint16_t C_BLACK   = 0x0000;
     const uint16_t C_WHITE   = 0xFFFF;

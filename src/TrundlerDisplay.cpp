@@ -7,11 +7,11 @@ TrundlerDisplay::TrundlerDisplay(int cs, int dc, int rst)
 void TrundlerDisplay::begin() {
     SPI.begin(TFT_SCK, -1, TFT_MOSI, -1);
     tft.initR(INITR_144GREENTAB); 
-    tft.setRotation(1); // Landscape (USB port on left/right depending on mount)
+    tft.setRotation(3); // Landscape Inverted (180 deg from rotation 1)
     tft.fillScreen(C_BLACK);
 }
 
-void TrundlerDisplay::drawFooter(float voltage, bool hasRemote) {
+void TrundlerDisplay::drawFooter(float voltage, bool hasRemote, uint8_t remoteBatt) {
     // Moved up for landscape mode (assuming 128 height, though might be 160 width)
     tft.fillRect(0, 105, 128, 23, C_GREY);
     
@@ -19,12 +19,18 @@ void TrundlerDisplay::drawFooter(float voltage, bool hasRemote) {
     drawBattery(5, 108, voltage);
     
     // Draw the signal icon if remote is connected
-    drawRemoteIcon(100, 108, hasRemote);
+    drawRemoteIcon(100, 108, hasRemote, remoteBatt);
 }
 
-void TrundlerDisplay::drawRemoteIcon(int x, int y, bool connected) {
+void TrundlerDisplay::drawRemoteIcon(int x, int y, bool connected, uint8_t remoteBatt) {
     if (!connected) return;
-    uint16_t color = C_CYAN;
+    
+    // Determine color based on remote battery voltage (passed as Volts * 10)
+    // LiPo: > 36 is good, 33-36 is low, < 33 is critical
+    uint16_t color = C_GREEN;
+    if (remoteBatt < 36) color = C_YELLOW;
+    if (remoteBatt < 33) color = C_RED;
+    if (remoteBatt == 0) color = C_CYAN; // Fallback if no data yet
     
     // Draw concentric circles to look like a radio signal
     tft.fillCircle(x+10, y+8, 2, color);
@@ -50,7 +56,7 @@ void TrundlerDisplay::drawBattery(int x, int y, float voltage) {
     tft.fillRect(x + 2 + fillW, y + 2, (w - 4) - fillW, h - 4, C_BLACK);
 }
 
-void TrundlerDisplay::update(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isCruise, bool devMode, bool hasRemote, uint8_t curLimit, uint8_t inertia) {
+void TrundlerDisplay::update(const CartData &stats, int16_t targetSpeed, int16_t currentSteer, float slaveComp, bool active, bool isCruise, bool devMode, bool hasRemote, uint8_t remoteBatt, uint8_t curLimit, uint8_t inertia) {
     if (millis() - _lastUpdate < 100) return;
     _lastUpdate = millis();
 
@@ -59,13 +65,14 @@ void TrundlerDisplay::update(const CartData &stats, int16_t targetSpeed, int16_t
         _lastDevMode = devMode;
         _lastVolt = -1.0; _lastTarget = -999; _lastSteer = -999; 
         _lastComp = -1.0; _lastLimit = 0; _lastActive = !active; _lastCruise = !isCruise;
-        drawFooter(stats.voltage, hasRemote); 
+        drawFooter(stats.voltage, hasRemote, remoteBatt); 
     }
 
-    if (stats.voltage != _lastVolt || hasRemote != _lastRemote) {
-        drawFooter(stats.voltage, hasRemote);
+    if (stats.voltage != _lastVolt || hasRemote != _lastRemote || remoteBatt != _lastRemoteBatt) {
+        drawFooter(stats.voltage, hasRemote, remoteBatt);
         _lastVolt = stats.voltage;
         _lastRemote = hasRemote;
+        _lastRemoteBatt = remoteBatt;
     }
 
     if (devMode) {

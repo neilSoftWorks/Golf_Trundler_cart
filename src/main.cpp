@@ -20,8 +20,8 @@ SerialHover2Server feedback;
 // UI Object (CS=7, DC=2, RST=3) - SPI SCK=8, MOSI=10 are hardware-defined
 TrundlerDisplay ui(TFT_CS, TFT_DC, TFT_RST);
 
-// Encoder Object (CLK=6, DT=9, SW=1)
-AiEsp32RotaryEncoder encoder = AiEsp32RotaryEncoder(ENC_CLK, ENC_DT, ENC_SW, -1, 4);
+// Encoder Object (Swapped DT and CLK to invert rotation direction)
+AiEsp32RotaryEncoder encoder = AiEsp32RotaryEncoder(ENC_DT, ENC_CLK, ENC_SW, -1, 4);
 
 InputState remoteInputs; 
 CartData cartStatus;
@@ -46,10 +46,16 @@ uint8_t curLimit = 15;
 uint8_t inertia = 10;   
 
 void onDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
+  // Radio Debug: Prints for EVERY packet the radio hears
+  Serial.printf("Radio RX: From %02X:%02X, Size %d\n", mac[0], mac[1], len);
+
   if (len == sizeof(InputState)) {
     memcpy(&remoteInputs, incomingData, sizeof(InputState));
     lastRecvTime = millis();
+    if (!hasRemote) Serial.println("Remote Link Established!");
     hasRemote = true;
+  } else {
+    Serial.printf("!!! Size Mismatch: Expected %d, Recv %d\n", sizeof(InputState), len);
   }
 }
 
@@ -60,7 +66,6 @@ void encoder_on_button_click() {
     
     manualActive = !manualActive;
     // Only reset to 0 if we were going backwards. 
-    // Keep positive forward speeds for the next resume.
     if (!manualActive && userSpeedLevel < 0) {
         userSpeedLevel = 0;
         encoder.setEncoderValue(0);
@@ -75,18 +80,29 @@ void setup() {
   Serial.println("\n\n=== TRUNDLER C3 16-PIN RECOVERY BOOT ===");
   
   // --- 1b. Thermal Management ---
-  // Setup PWM for Backlight (Channel 0, 5kHz, 8-bit)
   ledcSetup(0, 5000, 8); 
   ledcAttachPin(TFT_BLK, 0);
-  ledcWrite(0, 128); // 50% brightness to drastically reduce regulator heat
+  ledcWrite(0, 128); 
 
-  // Print MAC early so we always have it
-  uint8_t mac[6];
+  // --- 1c. Wifi/Radio Init ---
   WiFi.mode(WIFI_STA);
-  // Lower TX power slightly to reduce radio heat
+  WiFi.disconnect(); 
+  WiFi.setSleep(false);
   esp_wifi_set_max_tx_power(56); 
+  
+  // Mandatory for ESP-NOW: Set Channel 1 to match the Remote
+  esp_wifi_set_promiscuous(true);
+  esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+  esp_wifi_set_promiscuous(false);
+
+  // Print MAC and Channel
+  uint8_t mac[6];
   WiFi.macAddress(mac);
-  Serial.printf("MAC: %02X:%02X:%02X:%02X:%02X:%02X\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  uint8_t chan;
+  wifi_second_chan_t sec;
+  esp_wifi_get_channel(&chan, &sec);
+  Serial.printf("MAC: %02X:%02X:%02X:%02X:%02X:%02X | CH: %d\n", 
+      mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], chan);
 
   // --- 2. Init Hardware ---
   Serial.println("Initializing TFT...");
@@ -95,7 +111,7 @@ void setup() {
   Serial.println("Initializing Encoder...");
   encoder.begin();
   encoder.setup([]{ encoder.readEncoder_ISR(); });
-  encoder.setBoundaries(0, 20, false); // Local control only goes 0 to 20
+  encoder.setBoundaries(0, 20, false); 
   encoder.setAcceleration(0);
 
   initInput();
@@ -113,9 +129,8 @@ void setup() {
   Serial.println("System Ready.");
 }
 
-unsigned long lastSend = 0;
-
 void loop() {
+  static unsigned long lastSend = 0;
   // --- 1. Inputs ---
   InputState localInputs = readInput();
   
@@ -126,39 +141,39 @@ void loop() {
   }
 
   // --- 2. Process Commands ---
-  // Handle Encoder Rotation
+  // A. Local Encoder
   if (encoder.encoderChanged()) {
       userSpeedLevel = encoder.readEncoder();
       Serial.printf("Speed Level: %d\n", userSpeedLevel);
   }
 
-  // Handle Encoder Button (Start/Stop)
   if (encoder.isEncoderButtonClicked()) {
       encoder_on_button_click();
       Serial.printf("Drive Toggle: %s\n", manualActive ? "ON" : "OFF");
   }
 
-  // Handle Remote Speed Increments
+  // B. Remote
   static unsigned long lastRemoteAction = 0;
-  if (hasRemote && (millis() - lastRemoteAction > 200)) {
-      if (remoteInputs.fwd) { 
-          userSpeedLevel = CLAMP(userSpeedLevel + 1, -10, 20); 
-          encoder.setEncoderValue(userSpeedLevel);
-          lastRemoteAction = millis();
-      }
-      if (remoteInputs.rev) { 
-          userSpeedLevel = CLAMP(userSpeedLevel - 1, -10, 20); 
-          encoder.setEncoderValue(userSpeedLevel);
-          lastRemoteAction = millis();
-      }
-      if (remoteInputs.stop) {
-          manualActive = !manualActive;
-          if (!manualActive && userSpeedLevel < 0) { 
-              userSpeedLevel = 0; 
-              encoder.setEncoderValue(0); 
+  static bool lastRemoteStopState = false;
+
+  if (hasRemote) {
+      if (millis() - lastRemoteAction > 200) {
+          if (remoteInputs.fwd) { 
+              userSpeedLevel = CLAMP(userSpeedLevel + 1, -10, 20); 
+              encoder.setEncoderValue(userSpeedLevel);
+              lastRemoteAction = millis();
           }
-          lastRemoteAction = millis();
+          if (remoteInputs.rev) { 
+              userSpeedLevel = CLAMP(userSpeedLevel - 1, -10, 20); 
+              encoder.setEncoderValue(userSpeedLevel);
+              lastRemoteAction = millis();
+          }
       }
+
+      if (remoteInputs.stop && !lastRemoteStopState) {
+          encoder_on_button_click();
+      }
+      lastRemoteStopState = remoteInputs.stop;
   }
 
   // Merge Steering (Remote Only)
@@ -168,8 +183,6 @@ void loop() {
   if (!manualActive) {
       manualTargetSpeed = 0;
   } else {
-      // Linear mapping: Low levels (1-3) provide low PWM. 
-      // While it may not drive the cart, it provides useful magnetic drag.
       manualTargetSpeed = userSpeedLevel * 17.5f; 
   }
 
@@ -218,9 +231,13 @@ void loop() {
   int16_t speedR = (finalSpeed - turnSteer) * slaveComp; 
 
   uint8_t hoverMode = (manualActive && isCruiseMode) ? 1 : 0;
-  uint8_t controlState = manualActive ? STATE_BATT_ONLY : STATE_DISABLE;
+  
+  uint8_t controlState = STATE_BATT_ONLY;
+  if (!manualActive || (manualTargetSpeed == 0 && manualCurrentSpeed == 0)) {
+      controlState = STATE_DISABLE;
+  }
 
-  // --- 5. RX Telemetry ---
+  // --- 7. RX Telemetry ---
   if (Receive(HoverSerial, feedback)) {
       cartStatus.voltage = feedback.iVolt / 100.0;
       cartStatus.speedL = feedback.iSpeedL;
@@ -228,10 +245,24 @@ void loop() {
       cartStatus.odom = feedback.iOdomL;
   }
 
-  // --- 6. UI Update ---
-  ui.update(cartStatus, userSpeedLevel, turnSteer, slaveComp, manualActive, isCruiseMode, showDevScreen, hasRemote, curLimit, inertia);
+  // --- 8. UI Update ---
+  static unsigned long lastDisplayDebug = 0;
+  if (millis() - lastDisplayDebug > 1000) {
+      lastDisplayDebug = millis();
+      uint8_t m[6];
+      WiFi.macAddress(m);
+      uint8_t ch;
+      wifi_second_chan_t sec;
+      esp_wifi_get_channel(&ch, &sec);
+      Serial.printf("UI Loop: Volt=%.1fV, Mode=%s, Level=%d | MAC: %02X:%02X:%02X:%02X:%02X:%02X | CH: %d\n", 
+          cartStatus.voltage, manualActive ? "ACTIVE" : "STOP", userSpeedLevel,
+          m[0], m[1], m[2], m[3], m[4], m[5], ch);
+  }
+  
+  uint8_t rBatt = hasRemote ? remoteInputs.vBatt : 0;
+  ui.update(cartStatus, userSpeedLevel, turnSteer, slaveComp, manualActive, isCruiseMode, showDevScreen, hasRemote, rBatt, curLimit, inertia);
 
-  // --- 7. TX Transmission ---
+  // --- 9. TX Transmission ---
   if (millis() - lastSend > SEND_INTERVAL_MS) {
       lastSend = millis();
       HoverSend(HoverSerial, speedL, speedR, controlState, controlState, hoverMode, curLimit, inertia);

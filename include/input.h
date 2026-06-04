@@ -12,6 +12,7 @@ struct __attribute__((packed)) InputState {
     uint8_t left;
     uint8_t right;
     uint8_t stop; 
+    uint8_t vBatt; // Remote battery voltage (Volts * 10)
 };
 
 void initInput();

@@ -2,7 +2,7 @@
 // 0 = Full Assembly View & Hardware Layout (Transparent)
 // 1 = Base Box (Print flat)
 // 2 = Lid (Print flat on top face)
-part_to_show = 1; 
+part_to_show = 2; 
 
 // --- 1. ENCLOSURE PARAMETERS ---
 width  = 40;     
@@ -194,8 +194,8 @@ module lid() {
             translate([0,0,-2]) pillar_positions(lid_depth + 2);
             
             // Solid 14mm Spacer Block for the 5-Way Switch
-            translate([width/2, switch_y_pos, lid_depth - lid_thickness - 3])
-                cylinder(d=14, h=3 + overlap);
+            translate([width/2, switch_y_pos, lid_depth - lid_thickness - 1])
+                cylinder(d=14, h=2 + overlap);
                 
             // Glue alignment walls for the switch
             translate([switch_align_wall_inset, switch_y_pos, lid_depth - lid_thickness - 3])

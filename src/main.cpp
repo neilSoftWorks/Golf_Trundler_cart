@@ -45,11 +45,27 @@ int16_t cruiseNudge = 0;
 uint8_t curLimit = 15;  
 uint8_t inertia = 10;   
 
+uint8_t remoteMacAddress[6];
+bool remotePeerAdded = false;
+
 void onDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   if (len == sizeof(InputState)) {
     memcpy(&remoteInputs, incomingData, sizeof(InputState));
     lastRecvTime = millis();
-    if (!hasRemote) Serial.println("Remote Link Established!");
+    if (!hasRemote) {
+        Serial.println("Remote Link Established!");
+        if (!remotePeerAdded) {
+            esp_now_peer_info_t peerInfo;
+            memset(&peerInfo, 0, sizeof(peerInfo));
+            memcpy(peerInfo.peer_addr, mac, 6);
+            peerInfo.channel = 1; 
+            peerInfo.encrypt = false;
+            if (esp_now_add_peer(&peerInfo) == ESP_OK) {
+                memcpy(remoteMacAddress, mac, 6);
+                remotePeerAdded = true;
+            }
+        }
+    }
     hasRemote = true;
   } else {
     Serial.printf("!!! Size Mismatch: Expected %d, Recv %d\n", sizeof(InputState), len);
@@ -62,8 +78,8 @@ void encoder_on_button_click() {
     lastClick = millis();
     
     manualActive = !manualActive;
-    // Only reset to 0 if we were going backwards. 
-    if (!manualActive && userSpeedLevel < 0) {
+    // Always reset speed to 0 when stopped (forward or backward) for safety
+    if (!manualActive) {
         userSpeedLevel = 0;
         encoder.setEncoderValue(0);
         manualTargetSpeed = 0;
@@ -154,7 +170,8 @@ void loop() {
   static bool lastRemoteStopState = false;
 
   if (hasRemote) {
-      if (millis() - lastRemoteAction > 200) {
+      // Remote can only change speed when active/driving (for safety when stopped)
+      if (manualActive && (millis() - lastRemoteAction > 200)) {
           if (remoteInputs.fwd) { 
               userSpeedLevel = CLAMP(userSpeedLevel + 1, -10, 20); 
               encoder.setEncoderValue(userSpeedLevel);
@@ -224,13 +241,13 @@ void loop() {
       else finalSpeed -= cruiseNudge;
   }
 
-  int16_t speedL = -(finalSpeed + turnSteer);
-  int16_t speedR = (finalSpeed - turnSteer) * slaveComp; 
+  int16_t speedL = -(finalSpeed - turnSteer);
+  int16_t speedR = (finalSpeed + turnSteer) * slaveComp; 
 
   uint8_t hoverMode = (manualActive && isCruiseMode) ? 1 : 0;
   
   uint8_t controlState = STATE_BATT_ONLY;
-  if (!manualActive || (manualTargetSpeed == 0 && manualCurrentSpeed == 0)) {
+  if (!manualActive || (manualTargetSpeed == 0 && manualCurrentSpeed == 0 && turnSteer == 0)) {
       controlState = STATE_DISABLE;
   }
 
@@ -250,5 +267,14 @@ void loop() {
   if (millis() - lastSend > SEND_INTERVAL_MS) {
       lastSend = millis();
       HoverSend(HoverSerial, speedL, speedR, controlState, controlState, hoverMode, curLimit, inertia);
+  }
+
+  // --- 10. Send Telemetry back to Remote ---
+  static unsigned long lastTelemetrySend = 0;
+  if (hasRemote && remotePeerAdded && (millis() - lastTelemetrySend > 100)) {
+      lastTelemetrySend = millis();
+      cartStatus.isManual = manualActive;
+      cartStatus.cmdSpeed = manualTargetSpeed;
+      esp_now_send(remoteMacAddress, (uint8_t *) &cartStatus, sizeof(cartStatus));
   }
 }

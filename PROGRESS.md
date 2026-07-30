@@ -24,7 +24,8 @@
 - **Auto-Shutdown:** Disabled (unit stays active for long test sessions).
 
 ### B. Safety
-- **Reverse Limit:** Hard-limited to user-speed "10" (-175 internal).
+- **Reverse Limit:** Hard-limited to user-speed "20" (-350 internal).
+- **Forward Limit:** Hard-limited to user-speed "30" (525 internal).
 - **Interlock:** Speed cannot be changed while Parked or Braked.
 - **Remote Timeout:** Remote commands ignored if link lost for >1s.
 

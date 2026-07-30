@@ -111,29 +111,29 @@ void TrundlerDisplay::update(const CartData &stats, int16_t targetSpeed, int16_t
 
         drawSteeringArrows(currentSteer);
 
-        // Row 2: Status Text (Mixed Case, Small Font)
+        // Row 2: Status Text (Bigger, Bolder Font)
         if (active != _lastActive) {
-            tft.fillRect(0, 75, 128, 15, C_BLACK);
-            tft.setFont(NULL); // Small built-in font for space
+            tft.fillRect(0, 71, 128, 20, C_BLACK);
+            tft.setFont(&FreeSans12pt7b); 
             String sStatus = active ? "Driving" : "Stopped";
             uint16_t color = active ? C_GREEN : C_WHITE;
             tft.setTextColor(color);
             int16_t x1, y1; uint16_t w, h;
             tft.getTextBounds(sStatus, 0, 0, &x1, &y1, &w, &h);
-            tft.setCursor((128 - w) / 2, 80);
+            tft.setCursor((128 - w) / 2, 88);
             tft.print(sStatus);
         }
 
         // Row 3: Mode (Mixed Case)
         if (isCruise != _lastCruise || active != _lastActive) {
-            tft.fillRect(0, 92, 128, 12, C_BLACK);
+            tft.fillRect(0, 91, 128, 14, C_BLACK);
             if (active) {
                 tft.setFont(NULL); 
                 tft.setTextColor(isCruise ? C_CYAN : C_GREY);
                 String sMode = isCruise ? "Cruise Control" : "Smooth PWM";
                 int16_t x1, y1; uint16_t w, h;
                 tft.getTextBounds(sMode, 0, 0, &x1, &y1, &w, &h);
-                tft.setCursor((128 - w) / 2, 95);
+                tft.setCursor((128 - w) / 2, 94);
                 tft.print(sMode);
             }
         }

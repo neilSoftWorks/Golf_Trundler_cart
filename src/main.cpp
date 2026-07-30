@@ -32,7 +32,7 @@ unsigned long lastRecvTime = 0;
 // System States
 bool manualActive = false;   
 bool isCruiseMode = false;   
-int16_t userSpeedLevel = 0;    // Discrete speed level (-10 to 20)
+int16_t userSpeedLevel = 0;    // Discrete speed level (-20 to 30)
 int16_t manualTargetSpeed = 0; 
 int16_t manualCurrentSpeed = 0;
 float slaveComp = 1.0; 
@@ -78,8 +78,9 @@ void encoder_on_button_click() {
     lastClick = millis();
     
     manualActive = !manualActive;
-    // Always reset speed to 0 when stopped (forward or backward) for safety
-    if (!manualActive) {
+    // For forward speeds, preserve the set speed level in memory so it can be resumed on next go.
+    // Always reset to 0 when stopping from reverse (negative speed) for safety.
+    if (!manualActive && userSpeedLevel < 0) {
         userSpeedLevel = 0;
         encoder.setEncoderValue(0);
         manualTargetSpeed = 0;
@@ -124,7 +125,7 @@ void setup() {
   Serial.println("Initializing Encoder...");
   encoder.begin();
   encoder.setup([]{ encoder.readEncoder_ISR(); });
-  encoder.setBoundaries(0, 20, false); 
+  encoder.setBoundaries(0, 30, false); 
   encoder.setAcceleration(0);
 
   initInput();
@@ -173,25 +174,33 @@ void loop() {
       // Remote can only change speed when active/driving (for safety when stopped)
       if (manualActive && (millis() - lastRemoteAction > 200)) {
           if (remoteInputs.fwd) { 
-              userSpeedLevel = CLAMP(userSpeedLevel + 1, -10, 20); 
+              userSpeedLevel = CLAMP(userSpeedLevel + 1, -20, 30); 
               encoder.setEncoderValue(userSpeedLevel);
               lastRemoteAction = millis();
           }
           if (remoteInputs.rev) { 
-              userSpeedLevel = CLAMP(userSpeedLevel - 1, -10, 20); 
+              userSpeedLevel = CLAMP(userSpeedLevel - 1, -20, 30); 
               encoder.setEncoderValue(userSpeedLevel);
               lastRemoteAction = millis();
           }
       }
 
       if (remoteInputs.stop && !lastRemoteStopState) {
-          encoder_on_button_click();
+          // Ignore STOP button if we are actively steering (holding Left or Right) on the remote
+          if (!remoteInputs.left && !remoteInputs.right) {
+              encoder_on_button_click();
+          }
       }
       lastRemoteStopState = remoteInputs.stop;
   }
 
-  // Merge Steering (Remote Only)
-  int16_t turnSteer = remoteInputs.left ? -100 : (remoteInputs.right ? 100 : 0);
+  // Merge Steering (Remote Only) with Dynamic Bias based on speed to overcome grass resistance
+  int16_t steerBias = 110;
+  if (abs(manualCurrentSpeed) > 100) {
+      steerBias = 110 + (abs(manualCurrentSpeed) - 100) * 0.4f;
+      if (steerBias > 190) steerBias = 190;
+  }
+  int16_t turnSteer = remoteInputs.left ? -steerBias : (remoteInputs.right ? steerBias : 0);
 
   // --- 3. Unified Speed Mapping ---
   if (!manualActive) {
